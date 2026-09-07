@@ -1,0 +1,6 @@
+{
+  "name": "Majlis Data Entry Form",
+  "description": "A user input form connected to Google Sheets with Majlis dropdown and dynamic month tabs selection.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
