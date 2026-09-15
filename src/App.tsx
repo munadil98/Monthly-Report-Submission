@@ -15,6 +15,7 @@ import { SpreadsheetSelector } from './components/SpreadsheetSelector';
 import { DataEntryForm } from './components/DataEntryForm';
 import { ConfirmationModal } from './components/ConfirmationModal';
 import { RecentSubmissionsTable } from './components/RecentSubmissionsTable';
+import { LoginForm } from './components/LoginForm';
 import {
   getDefaultSpreadsheetMetadata,
   submitToAppsScript,
@@ -22,13 +23,43 @@ import {
   fetchTabsFromAppsScript,
 } from './services/googleSheets';
 import { EXACT_FORM_FIELDS, DEFAULT_MONTH_NAMES_BN } from './data/majlisList';
+import { INITIAL_MAJLIS_USERS } from './data/majlisUsers';
 import {
   SpreadsheetMetadata,
   SubmissionPayload,
   StoredSubmission,
+  AuthUser,
 } from './types';
 
 export default function App() {
+  // Authentication State
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => {
+    try {
+      const saved = localStorage.getItem('majlis_auth_user');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const handleLogin = (user: AuthUser) => {
+    setCurrentUser(user);
+    try {
+      localStorage.setItem('majlis_auth_user', JSON.stringify(user));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    try {
+      localStorage.removeItem('majlis_auth_user');
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   // Spreadsheet connection configuration state
   const [spreadsheet, setSpreadsheet] = useState<SpreadsheetMetadata>(() => {
     try {
@@ -113,17 +144,28 @@ export default function App() {
     return [...EXACT_FORM_FIELDS];
   }, []);
 
-  // Filter rows for the currently selected month
+  // Filter rows for the currently selected month, taking role into account
   const currentMonthRows = useMemo(() => {
     return submissions
-      .filter((s) => s.sheetTitle === selectedMonth)
+      .filter((s) => {
+        if (s.sheetTitle !== selectedMonth) return false;
+        // If logged in as a specific majlis, only show submissions for that majlis
+        if (currentUser?.role === 'majlis' && currentUser.majlisFullName) {
+          return (
+            s.majlisName === currentUser.majlisFullName ||
+            (currentUser.majlisEnglish &&
+              s.majlisName.toLowerCase().includes(currentUser.majlisEnglish.toLowerCase()))
+          );
+        }
+        return true;
+      })
       .map((s) => {
         return EXACT_FORM_FIELDS.map((f) => {
           if (f === 'মজলিস নাম') return s.majlisName;
           return s.values[f] ?? '';
         });
       });
-  }, [submissions, selectedMonth]);
+  }, [submissions, selectedMonth, currentUser]);
 
   // Handle Form Submission Request -> Open Confirmation Modal
   const handleFormSubmitRequest = (payload: SubmissionPayload) => {
@@ -235,14 +277,21 @@ export default function App() {
     document.body.removeChild(link);
   };
 
+  // If user is not logged in, render the login portal
+  if (!currentUser) {
+    return <LoginForm onLogin={handleLogin} usersList={INITIAL_MAJLIS_USERS} />;
+  }
+
   return (
     <div className="min-h-screen bg-gray-50/70 text-gray-900 flex flex-col">
-      {/* Top Header (No user login, clean status and actions) */}
+      {/* Top Header with active user indicator and logout */}
       <Header
         spreadsheet={spreadsheet}
         onOpenSpreadsheetSettings={() => setIsSpreadsheetModalOpen(true)}
         onExportCSV={handleExportCSV}
         submissionsCount={submissions.length}
+        currentUser={currentUser}
+        onLogout={handleLogout}
       />
 
       {/* Main Container */}
@@ -256,6 +305,7 @@ export default function App() {
           existingRows={currentMonthRows}
           onSubmitRequest={handleFormSubmitRequest}
           onOpenSettings={() => setIsSpreadsheetModalOpen(true)}
+          currentUser={currentUser}
           lastSubmittedSuccess={lastSubmittedSuccess}
         />
 

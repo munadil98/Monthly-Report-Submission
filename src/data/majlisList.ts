@@ -254,6 +254,7 @@ export type ExactFormFieldName = (typeof EXACT_FORM_FIELDS)[number];
 export interface FormFieldCategory {
   id: string;
   name: string;
+  englishTitle?: string;
   fields: string[];
 }
 
@@ -261,6 +262,7 @@ export const FORM_FIELD_CATEGORIES: FormFieldCategory[] = [
   {
     id: 'tajnid',
     name: 'তাজনীদ ও সদস্য সংখ্যা',
+    englishTitle: 'Tajnid & Members',
     fields: [
       'মজলিস নাম',
       'তাজনীদ ভুক্ত সদস্য',
@@ -273,11 +275,13 @@ export const FORM_FIELD_CATEGORIES: FormFieldCategory[] = [
   {
     id: 'meetings',
     name: 'সভা ও সমাবেশ',
+    englishTitle: 'Meetings & Attendance',
     fields: ['আমেলা সভা', 'সাধারণ সভা', 'সাধারণ সভায় উপস্থিত'],
   },
   {
     id: 'tabligh',
     name: 'তবলীগ ও দাওয়াত',
+    englishTitle: 'Tabligh & Preaching',
     fields: [
       'দায়ী ইলাল্লাহ্ সদস্য',
       'তবলীগ সেমিনার',
@@ -290,6 +294,7 @@ export const FORM_FIELD_CATEGORIES: FormFieldCategory[] = [
   {
     id: 'quran_salat',
     name: 'কুরআন ও নামায',
+    englishTitle: 'Holy Quran & Salat',
     fields: [
       'কতজন কুরআন পড়া জানেন',
       'কোরআন ক্লাসে সদস্য',
@@ -300,6 +305,7 @@ export const FORM_FIELD_CATEGORIES: FormFieldCategory[] = [
   {
     id: 'mta_khutba',
     name: 'এমটিএ ও খুদবা',
+    englishTitle: 'MTA & Sermons',
     fields: [
       'এমটিএ সংযোগ',
       'অচল এমটিএ সংযোগ',
@@ -310,21 +316,25 @@ export const FORM_FIELD_CATEGORIES: FormFieldCategory[] = [
   {
     id: 'talim',
     name: 'তালিম ও স্টাডি ফোরাম',
+    englishTitle: 'Talim & Study Forum',
     fields: ['পুস্তকের ওপর পরীক্ষা', 'পুস্তকের ওপর সেমিনার', 'স্টাডি ফোরামে উপস্থিত'],
   },
   {
     id: 'nau_mubai',
     name: 'নওমোবাইন',
+    englishTitle: 'Nau-Mubai',
     fields: ['নওমোবাইন সংখ্যা', 'বাজেট ভুক্ত নও-মোবাঈন', 'নও-মোবাইন সেমিনারে উঃ'],
   },
   {
     id: 'khidmat',
     name: 'খিদমতে খালক',
+    englishTitle: 'Khidmat-e-Khalq',
     fields: ['অসুস্থ আনসার সদস্য', 'বয়ঃবৃদ্ধ আনসার সদস্য', 'খাদ্য বিতরণ'],
   },
   {
     id: 'tahrik_health',
     name: 'তাহরীক ও স্বাস্থ্য',
+    englishTitle: 'Tahrik & Health',
     fields: [
       'আলনাসের এর সদস্য সংখ্যা',
       'তাহরীকে জাদীদ সদস্য',

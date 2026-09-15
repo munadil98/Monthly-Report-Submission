@@ -48,3 +48,23 @@ export interface StoredSubmission {
   syncedToGoogleSheet?: boolean;
 }
 
+export interface MajlisUserRecord {
+  sl: number;
+  english: string;
+  bangla: string;
+  mobile: string;
+  district?: string;
+  region?: string;
+  fullName: string;
+}
+
+export interface AuthUser {
+  username: string;
+  role: 'admin' | 'majlis';
+  majlisEnglish?: string;
+  majlisBangla?: string;
+  majlisFullName?: string; // e.g. "আহমদনগর (Ahmadnagar)"
+  district?: string;
+  region?: string;
+}
+

@@ -22,8 +22,9 @@ import {
   Baby,
   Calculator,
   Info,
+  Lock,
 } from 'lucide-react';
-import { SpreadsheetMetadata, SubmissionPayload } from '../types';
+import { SpreadsheetMetadata, SubmissionPayload, AuthUser } from '../types';
 import {
   DEFAULT_MAJLIS_LIST,
   EXACT_FORM_FIELDS,
@@ -43,6 +44,7 @@ interface DataEntryFormProps {
   onSubmitRequest: (payload: SubmissionPayload) => void;
   onHeadersUpdated?: () => void;
   onOpenSettings?: () => void;
+  currentUser: AuthUser;
   lastSubmittedSuccess: {
     sheetTitle: string;
     majlisName: string;
@@ -60,6 +62,7 @@ export const DataEntryForm: React.FC<DataEntryFormProps> = ({
   onSubmitRequest,
   onHeadersUpdated,
   onOpenSettings,
+  currentUser,
   lastSubmittedSuccess,
 }) => {
   // Majlis list state from sheet 'Majlis-Names'
@@ -166,12 +169,24 @@ export const DataEntryForm: React.FC<DataEntryFormProps> = ({
     return Array.from(set);
   }, [sheetMajlisList, customMajlisList, headers, existingRows]);
 
+  // Determine majlis options based on user role:
+  // Admin -> has all majlis names as it is now
+  // Majlis user -> has ONLY the logged-in majlis, no other majlis!
+  const majlisOptions = useMemo(() => {
+    if (currentUser.role === 'majlis' && currentUser.majlisFullName) {
+      return [currentUser.majlisFullName];
+    }
+    return allMajlisOptions;
+  }, [currentUser, allMajlisOptions]);
+
   // Set initial selected Majlis
   useEffect(() => {
-    if (!selectedMajlis && allMajlisOptions.length > 0) {
+    if (currentUser.role === 'majlis' && currentUser.majlisFullName) {
+      setSelectedMajlis(currentUser.majlisFullName);
+    } else if (!selectedMajlis && allMajlisOptions.length > 0) {
       setSelectedMajlis(allMajlisOptions[0]);
     }
-  }, [allMajlisOptions, selectedMajlis]);
+  }, [currentUser, allMajlisOptions, selectedMajlis]);
 
   // Keep fieldValues['মজলিস নাম'] continuously synced with selectedMajlis
   useEffect(() => {
@@ -627,26 +642,40 @@ export const DataEntryForm: React.FC<DataEntryFormProps> = ({
             <div>
               <label className="block text-xs font-bold text-gray-800 mb-1.5 flex items-center justify-between">
                 <span className="flex items-center gap-1.5">
-                  <Building2 className="w-4 h-4 text-emerald-600" />
+                  {currentUser.role === 'majlis' ? (
+                    <Lock className="w-4 h-4 text-emerald-700" />
+                  ) : (
+                    <Building2 className="w-4 h-4 text-emerald-600" />
+                  )}
                   ১. মজলিস নাম (Majlis Name)
                   <span className="text-red-500">*</span>
                 </span>
                 <span className="text-[11px] text-gray-500 font-medium">
-                  {allMajlisOptions.length}টি মজলিস
+                  {currentUser.role === 'majlis'
+                    ? 'শুধুমাত্র আপনার মজলিস'
+                    : `${majlisOptions.length}টি মজলিস`}
                 </span>
               </label>
 
               <MajlisSearchableSelect
-                options={allMajlisOptions}
+                options={majlisOptions}
                 value={selectedMajlis}
-                onChange={(val) => setSelectedMajlis(val)}
-                onSyncFromSheet={handleSyncMajlisFromSheet}
+                onChange={(val) => {
+                  if (currentUser.role !== 'majlis') {
+                    setSelectedMajlis(val);
+                  }
+                }}
+                onSyncFromSheet={currentUser.role === 'admin' ? handleSyncMajlisFromSheet : undefined}
                 isSyncing={isSyncingMajlis}
                 isSheetSynced={isSheetSynced}
+                isLocked={currentUser.role === 'majlis'}
+                lockedNotice="লগইনকৃত মজলিস (নির্ধারিত)"
               />
 
               <p className="text-[11px] text-gray-500 mt-1">
-                বাংলা বা ইংরেজি যেকোনো নামে সার্চ করে নির্বাচন করুন (যেমন: মিরপুর বা Mirpur)।
+                {currentUser.role === 'majlis'
+                  ? 'আপনার অ্যাকাউন্টের জন্য এই মজলিসটি নির্ধারিত ও অপরিবর্তনীয়।'
+                  : 'বাংলা বা ইংরেজি যেকোনো নামে সার্চ করে নির্বাচন করুন (যেমন: মিরপুর বা Mirpur)।'}
               </p>
             </div>
           </div>
@@ -738,9 +767,11 @@ export const DataEntryForm: React.FC<DataEntryFormProps> = ({
                 <div className="flex items-center gap-2">
                   {getCategoryIcon(category.id)}
                   <h4 className="text-xs font-bold text-gray-900">{category.name}</h4>
-                  <span className="text-[11px] text-gray-400 font-normal">
-                    ({category.englishTitle})
-                  </span>
+                  {category.englishTitle && (
+                    <span className="text-[11px] text-gray-400 font-normal">
+                      ({category.englishTitle})
+                    </span>
+                  )}
                 </div>
                 <span className="text-[11px] font-semibold text-gray-500">
                   {category.fields.length}টি ফিল্ড
