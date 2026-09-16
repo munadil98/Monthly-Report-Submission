@@ -20,6 +20,7 @@ interface MajlisSearchableSelectProps {
   isSheetSynced?: boolean;
   isLocked?: boolean;
   lockedNotice?: string;
+  disabled?: boolean;
 }
 
 export const MajlisSearchableSelect: React.FC<MajlisSearchableSelectProps> = ({
@@ -31,6 +32,7 @@ export const MajlisSearchableSelect: React.FC<MajlisSearchableSelectProps> = ({
   isSheetSynced = false,
   isLocked = false,
   lockedNotice,
+  disabled = false,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -156,45 +158,59 @@ export const MajlisSearchableSelect: React.FC<MajlisSearchableSelectProps> = ({
   };
 
   return (
-    <div ref={containerRef} className="relative w-full" onKeyDown={handleKeyDown}>
+    <div ref={containerRef} className="relative w-full" onKeyDown={disabled ? undefined : handleKeyDown}>
       {/* Trigger Button */}
       <div
         role="button"
-        tabIndex={0}
-        onClick={() => setIsOpen(!isOpen)}
-        className={`w-full min-h-[42px] px-3.5 py-2 rounded-xl flex items-center justify-between gap-2 text-xs cursor-pointer transition shadow-2xs ${
-          isLocked
-            ? 'bg-emerald-50/50 border border-emerald-300 hover:bg-emerald-50'
+        tabIndex={disabled ? -1 : 0}
+        onClick={() => {
+          if (!disabled) {
+            setIsOpen(!isOpen);
+          }
+        }}
+        className={`w-full min-h-[42px] px-3.5 py-2 rounded-xl flex items-center justify-between gap-2 text-xs transition shadow-2xs ${
+          disabled
+            ? 'bg-gray-100 border border-gray-200 text-gray-400 cursor-not-allowed opacity-75'
+            : isLocked
+            ? 'bg-emerald-50/50 border border-emerald-300 hover:bg-emerald-50 cursor-pointer'
             : isOpen
-            ? 'bg-white border-emerald-500 ring-2 ring-emerald-500/20'
-            : 'bg-white border-emerald-300 hover:border-emerald-400'
+            ? 'bg-white border-emerald-500 ring-2 ring-emerald-500/20 cursor-pointer'
+            : 'bg-white border-emerald-300 hover:border-emerald-400 cursor-pointer'
         }`}
       >
         <div className="flex items-center gap-2 flex-1 min-w-0">
-          {isLocked ? (
+          {disabled ? (
+            <Lock className="w-4 h-4 text-gray-400 shrink-0" />
+          ) : isLocked ? (
             <Lock className="w-4 h-4 text-emerald-700 shrink-0" />
           ) : (
             <Building2 className="w-4 h-4 text-emerald-600 shrink-0" />
           )}
           {value ? (
             <div className="flex items-center gap-1.5 truncate">
-              <span className="font-bold text-gray-900 truncate">{value}</span>
+              <span className={`font-bold truncate ${disabled ? 'text-gray-500' : 'text-gray-900'}`}>
+                {value}
+              </span>
             </div>
           ) : (
-            <span className="text-gray-400 font-medium">
-              মজলিস নাম নির্বাচন বা সার্চ করুন...
+            <span className={disabled ? 'text-gray-400 italic' : 'text-gray-400 font-medium'}>
+              {disabled ? 'প্রথমে মাসের নাম নির্বাচন করুন...' : 'মজলিস নাম নির্বাচন বা সার্চ করুন...'}
             </span>
           )}
         </div>
 
         <div className="flex items-center gap-1.5 shrink-0">
-          {isLocked && (
+          {disabled ? (
+            <span className="px-2 py-0.5 rounded-md bg-gray-200 text-gray-600 text-[10px] font-semibold">
+              নিষ্ক্রিয়
+            </span>
+          ) : isLocked ? (
             <span className="px-2 py-0.5 rounded-md bg-emerald-100/90 text-emerald-800 text-[10px] font-bold">
               {lockedNotice || 'নির্ধারিত মজলিস'}
             </span>
-          )}
+          ) : null}
 
-          {!isLocked && value && (
+          {!disabled && !isLocked && value && (
             <button
               type="button"
               onClick={(e) => {
@@ -208,7 +224,7 @@ export const MajlisSearchableSelect: React.FC<MajlisSearchableSelectProps> = ({
             </button>
           )}
           <ChevronDown
-            className={`w-4 h-4 text-gray-500 transition-transform duration-200 ${
+            className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${
               isOpen ? 'rotate-180 text-emerald-600' : ''
             }`}
           />
@@ -216,7 +232,7 @@ export const MajlisSearchableSelect: React.FC<MajlisSearchableSelectProps> = ({
       </div>
 
       {/* Dropdown Panel */}
-      {isOpen && (
+      {!disabled && isOpen && (
         <div className="absolute z-50 left-0 right-0 top-full mt-1.5 bg-white border border-emerald-200 rounded-2xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
           {/* Search Header */}
           <div className="p-2.5 border-b border-gray-100 bg-gray-50/80 space-y-2">

@@ -68,3 +68,14 @@ export interface AuthUser {
   region?: string;
 }
 
+export interface MajlisHistoricalReport {
+  monthTab: string;
+  monthLabel: string;
+  hasData: boolean;
+  filledCount: number;
+  rowNumber?: number;
+  values: Record<string, string | number>;
+  source: 'google_sheet' | 'local_submission';
+  timestamp?: string;
+}
+

@@ -1,9 +1,11 @@
-import { SheetTabInfo, SpreadsheetMetadata, MajlisUserRecord } from '../types';
+import { SheetTabInfo, SpreadsheetMetadata, MajlisUserRecord, MajlisHistoricalReport } from '../types';
 import {
   DEFAULT_MONTH_NAMES_BN,
   DEFAULT_SPREADSHEET_ID,
   DEFAULT_SPREADSHEET_GID,
   EXACT_FORM_FIELDS,
+  EXACT_SHEET_MONTH_TABS,
+  getMonthDisplayLabel,
 } from '../data/majlisList';
 
 /**
@@ -349,6 +351,198 @@ export function exportSubmissionsToCSV(
   });
 
   return csvRows.join('\n');
+}
+
+/**
+ * Fetches all historical monthly data for a given Majlis directly from Google Sheets.
+ * Iterates through all available month sheet tabs in parallel for fast loading (~1 second).
+ */
+export async function fetchMajlisAllMonthsData(
+  sheetUrlOrId: string = DEFAULT_SPREADSHEET_ID,
+  majlisName: string,
+  majlisEnglish?: string,
+  majlisBangla?: string,
+  customTabs?: string[]
+): Promise<MajlisHistoricalReport[]> {
+  const sheetId = extractSpreadsheetId(sheetUrlOrId);
+  if (!sheetId || sheetId.startsWith('local')) {
+    return [];
+  }
+
+  // Determine list of tabs to query
+  const tabsToQuery: { tabName: string; labelBn: string }[] = [];
+  
+  if (customTabs && customTabs.length > 0) {
+    customTabs.forEach((tab) => {
+      tabsToQuery.push({
+        tabName: tab,
+        labelBn: getMonthDisplayLabel(tab),
+      });
+    });
+  } else {
+    EXACT_SHEET_MONTH_TABS.forEach((m) => {
+      tabsToQuery.push({
+        tabName: m.tabName,
+        labelBn: m.labelBn,
+      });
+    });
+  }
+
+  // Prepare search keys for matching this majlis in the sheet
+  const searchKeys = new Set<string>();
+  if (majlisName) {
+    searchKeys.add(majlisName.toLowerCase().trim());
+    const match = majlisName.match(/^(.*?)\s*\((.*?)\)$/);
+    if (match) {
+      if (match[1]) searchKeys.add(match[1].toLowerCase().trim());
+      if (match[2]) searchKeys.add(match[2].toLowerCase().trim());
+    }
+  }
+  if (majlisEnglish) {
+    searchKeys.add(majlisEnglish.toLowerCase().trim());
+  }
+  if (majlisBangla) {
+    searchKeys.add(majlisBangla.toLowerCase().trim());
+  }
+
+  const matchesMajlis = (cellText: string): boolean => {
+    if (!cellText) return false;
+    const clean = cellText.toLowerCase().trim();
+    for (const key of searchKeys) {
+      if (!key) continue;
+      if (clean === key || clean.includes(key) || key.includes(clean)) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  // Query each month tab in parallel
+  const monthPromises = tabsToQuery.map(async (tab): Promise<MajlisHistoricalReport> => {
+    try {
+      const gvizUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(
+        tab.tabName
+      )}`;
+      const res = await fetch(gvizUrl);
+      if (!res.ok) {
+        return {
+          monthTab: tab.tabName,
+          monthLabel: tab.labelBn,
+          hasData: false,
+          filledCount: 0,
+          values: {},
+          source: 'google_sheet',
+        };
+      }
+
+      const text = await res.text();
+      const match = text.match(/google\.visualization\.Query\.setResponse\(([\s\S]+)\);/);
+      if (!match || !match[1]) {
+        return {
+          monthTab: tab.tabName,
+          monthLabel: tab.labelBn,
+          hasData: false,
+          filledCount: 0,
+          values: {},
+          source: 'google_sheet',
+        };
+      }
+
+      const json = JSON.parse(match[1]);
+      if (!json || json.status === 'error' || !json.table) {
+        return {
+          monthTab: tab.tabName,
+          monthLabel: tab.labelBn,
+          hasData: false,
+          filledCount: 0,
+          values: {},
+          source: 'google_sheet',
+        };
+      }
+
+      const rows = json.table.rows || [];
+      const cols = (json.table.cols || []).map((c: any) => String(c?.label || '').trim());
+
+      // Check if row 0 is header
+      let startIdx = 0;
+      if (rows.length > 0) {
+        const row0Cells = rows[0]?.c || [];
+        const r0c1 = String(row0Cells[1]?.v ?? '').toLowerCase();
+        if (r0c1.includes('মজলিস') || r0c1.includes('majlis')) {
+          startIdx = 1;
+        }
+      }
+
+      for (let r = startIdx; r < rows.length; r++) {
+        const c = rows[r]?.c || [];
+        const col1 = String(c[1]?.v ?? c[1]?.f ?? '').trim();
+        const col0 = String(c[0]?.v ?? c[0]?.f ?? '').trim();
+
+        if (matchesMajlis(col1) || (startIdx === 0 && matchesMajlis(col0))) {
+          const values: Record<string, string | number> = {};
+          let filledCount = 0;
+
+          values['মজলিস নাম'] = c[1]?.v ?? c[1]?.f ?? majlisName;
+
+          // Map columns 2..36 to EXACT_FORM_FIELDS[1..35]
+          for (let fIdx = 1; fIdx < EXACT_FORM_FIELDS.length; fIdx++) {
+            const fieldName = EXACT_FORM_FIELDS[fIdx];
+            const colIndex = fIdx + 1; // Col 0: SL, Col 1: Majlis, Col 2: Field 1
+            const cellVal = c[colIndex]?.v ?? c[colIndex]?.f;
+
+            if (cellVal !== undefined && cellVal !== null && cellVal !== '') {
+              values[fieldName] = cellVal;
+              filledCount++;
+            } else if (cols[colIndex] && cols[colIndex] !== '') {
+              // Try matching by column header label if position shifted
+              const headerMatchedIdx = cols.findIndex(
+                (h) => h.includes(fieldName) || fieldName.includes(h)
+              );
+              if (headerMatchedIdx !== -1) {
+                const altVal = c[headerMatchedIdx]?.v ?? c[headerMatchedIdx]?.f;
+                if (altVal !== undefined && altVal !== null && altVal !== '') {
+                  values[fieldName] = altVal;
+                  filledCount++;
+                }
+              }
+            }
+          }
+
+          return {
+            monthTab: tab.tabName,
+            monthLabel: tab.labelBn,
+            hasData: filledCount > 0,
+            filledCount,
+            rowNumber: r + 1,
+            values,
+            source: 'google_sheet',
+          };
+        }
+      }
+
+      return {
+        monthTab: tab.tabName,
+        monthLabel: tab.labelBn,
+        hasData: false,
+        filledCount: 0,
+        values: {},
+        source: 'google_sheet',
+      };
+    } catch (e) {
+      console.warn(`Could not fetch historical data for tab ${tab.tabName}:`, e);
+      return {
+        monthTab: tab.tabName,
+        monthLabel: tab.labelBn,
+        hasData: false,
+        filledCount: 0,
+        values: {},
+        source: 'google_sheet',
+      };
+    }
+  });
+
+  const results = await Promise.all(monthPromises);
+  return results;
 }
 
 /**

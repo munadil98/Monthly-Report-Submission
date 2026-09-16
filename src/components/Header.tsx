@@ -84,46 +84,51 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           )}
 
-          {/* Connection Pill */}
-          <button
-            type="button"
-            onClick={onOpenSpreadsheetSettings}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-semibold transition cursor-pointer ${
-              isLiveConnected
-                ? 'bg-emerald-50 text-emerald-900 border-emerald-300 hover:bg-emerald-100'
-                : 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100'
-            }`}
-            title={isLiveConnected ? 'গুগল শিট লাইভ সংযুক্ত' : 'গুগল শিটে সরাসরি লেখার জন্য Apps Script URL সেট করুন'}
-          >
-            {isLiveConnected ? (
-              <>
-                <Globe className="w-3.5 h-3.5 text-emerald-600 animate-pulse" />
-                <span className="font-bold hidden sm:inline">লাইভ সিঙ্ক</span>
-              </>
-            ) : (
-              <>
-                <Settings className="w-3.5 h-3.5 text-amber-600" />
-                <span className="font-bold hidden sm:inline">Apps Script</span>
-              </>
-            )}
-            <span className={isLiveConnected ? 'text-emerald-400' : 'text-amber-400'}>•</span>
-            <span className={isLiveConnected ? 'text-emerald-800' : 'text-amber-800'}>
-              {spreadsheet?.sheets?.length || 12} মাস
-            </span>
-          </button>
+          {/* Admin-only Connection Pill & Google Sheet Link */}
+          {currentUser?.role === 'admin' && (
+            <>
+              {/* Connection Pill */}
+              <button
+                type="button"
+                onClick={onOpenSpreadsheetSettings}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-semibold transition cursor-pointer ${
+                  isLiveConnected
+                    ? 'bg-emerald-50 text-emerald-900 border-emerald-300 hover:bg-emerald-100'
+                    : 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100'
+                }`}
+                title={isLiveConnected ? 'গুগল শিট লাইভ সংযুক্ত' : 'গুগল শিটে সরাসরি লেখার জন্য Apps Script URL সেট করুন'}
+              >
+                {isLiveConnected ? (
+                  <>
+                    <Globe className="w-3.5 h-3.5 text-emerald-600 animate-pulse" />
+                    <span className="font-bold hidden sm:inline">লাইভ সিঙ্ক</span>
+                  </>
+                ) : (
+                  <>
+                    <Settings className="w-3.5 h-3.5 text-amber-600" />
+                    <span className="font-bold hidden sm:inline">Apps Script</span>
+                  </>
+                )}
+                <span className={isLiveConnected ? 'text-emerald-400' : 'text-amber-400'}>•</span>
+                <span className={isLiveConnected ? 'text-emerald-800' : 'text-amber-800'}>
+                  {spreadsheet?.sheets?.length || 12} মাস
+                </span>
+              </button>
 
-          {/* Open Google Sheet if URL exists */}
-          {spreadsheet?.spreadsheetUrl && (
-            <a
-              href={spreadsheet.spreadsheetUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 hover:text-emerald-900 bg-white hover:bg-emerald-50 border border-emerald-200 px-2.5 py-1.5 rounded-lg transition"
-              title="গুগল শিটে খুলুন"
-            >
-              <ExternalLink className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">শিট দেখুন</span>
-            </a>
+              {/* Open Google Sheet if URL exists */}
+              {spreadsheet?.spreadsheetUrl && (
+                <a
+                  href={spreadsheet.spreadsheetUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 hover:text-emerald-900 bg-white hover:bg-emerald-50 border border-emerald-200 px-2.5 py-1.5 rounded-lg transition"
+                  title="গুগল শিটে খুলুন"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">শিট দেখুন</span>
+                </a>
+              )}
+            </>
           )}
 
           {/* Export CSV Button */}

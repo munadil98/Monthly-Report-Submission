@@ -16,12 +16,14 @@ import { DataEntryForm } from './components/DataEntryForm';
 import { ConfirmationModal } from './components/ConfirmationModal';
 import { RecentSubmissionsTable } from './components/RecentSubmissionsTable';
 import { LoginForm } from './components/LoginForm';
+import { MajlisPreviousMonthsView } from './components/MajlisPreviousMonthsView';
 import {
   getDefaultSpreadsheetMetadata,
   submitToAppsScript,
   exportSubmissionsToCSV,
   fetchTabsFromAppsScript,
   fetchMajlisUsersFromSheet,
+  fetchMajlisAllMonthsData,
 } from './services/googleSheets';
 import { EXACT_FORM_FIELDS, DEFAULT_MONTH_NAMES_BN, DEFAULT_SPREADSHEET_ID } from './data/majlisList';
 import { INITIAL_MAJLIS_USERS } from './data/majlisUsers';
@@ -31,6 +33,7 @@ import {
   StoredSubmission,
   AuthUser,
   MajlisUserRecord,
+  MajlisHistoricalReport,
 } from './types';
 
 export default function App() {
@@ -114,10 +117,8 @@ export default function App() {
     };
   }, [spreadsheet?.spreadsheetId]);
 
-  // Active Month (Sheet Tab) state
-  const [selectedMonth, setSelectedMonth] = useState<string>(() => {
-    return spreadsheet.sheets?.[0]?.title || DEFAULT_MONTH_NAMES_BN[0];
-  });
+  // Active Month (Sheet Tab) state - starts empty until user selects a month
+  const [selectedMonth, setSelectedMonth] = useState<string>('');
 
   // Local submissions repository (persisted in browser storage)
   const [submissions, setSubmissions] = useState<StoredSubmission[]>(() => {
@@ -140,6 +141,76 @@ export default function App() {
     timestamp: string;
     liveSynced?: boolean;
   } | null>(null);
+
+  // Majlis historical records across all months
+  const [majlisHistory, setMajlisHistory] = useState<MajlisHistoricalReport[]>([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(false);
+
+  // Values pre-filled into form when user clicks "Load into form" from previous records
+  const [prefilledValues, setPrefilledValues] = useState<{
+    month: string;
+    values: Record<string, string | number>;
+  } | null>(null);
+
+  // Fetch historical data for logged-in majlis directly from Google Sheets
+  const loadMajlisHistory = useCallback(async () => {
+    if (!currentUser || currentUser.role !== 'majlis') return;
+    setIsLoadingHistory(true);
+    try {
+      const targetSheetId = spreadsheet?.spreadsheetUrl || spreadsheet?.spreadsheetId || DEFAULT_SPREADSHEET_ID;
+      const reports = await fetchMajlisAllMonthsData(
+        targetSheetId,
+        currentUser.majlisFullName || '',
+        currentUser.majlisEnglish,
+        currentUser.majlisBangla,
+        spreadsheet.sheets?.map((s) => s.title)
+      );
+      setMajlisHistory(reports);
+      try {
+        const cacheKey = `majlis_history_${currentUser.majlisEnglish || currentUser.username}`;
+        localStorage.setItem(cacheKey, JSON.stringify(reports));
+      } catch (e) {
+        console.warn('Failed to cache majlis history:', e);
+      }
+    } catch (err) {
+      console.error('Failed to load majlis history:', err);
+    } finally {
+      setIsLoadingHistory(false);
+    }
+  }, [currentUser, spreadsheet]);
+
+  // Trigger loading majlis historical data on login or user switch
+  useEffect(() => {
+    if (currentUser?.role === 'majlis') {
+      // Instant display from cache if available
+      try {
+        const cacheKey = `majlis_history_${currentUser.majlisEnglish || currentUser.username}`;
+        const cached = localStorage.getItem(cacheKey);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setMajlisHistory(parsed);
+          }
+        }
+      } catch {}
+
+      // Fetch live fresh data
+      loadMajlisHistory();
+    } else {
+      setMajlisHistory([]);
+    }
+  }, [currentUser, loadMajlisHistory]);
+
+  // Handle loading a historical report directly into the DataEntryForm
+  const handleLoadMonthIntoForm = (report: MajlisHistoricalReport) => {
+    setSelectedMonth(report.monthTab);
+    setPrefilledValues({
+      month: report.monthTab,
+      values: report.values,
+    });
+    // Smooth scroll to form
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   // Save spreadsheet config to localStorage whenever updated
   useEffect(() => {
@@ -257,6 +328,11 @@ export default function App() {
         liveSynced,
       });
 
+      // 4. Reload majlis historical data so previous months reflect latest update
+      if (currentUser?.role === 'majlis') {
+        loadMajlisHistory();
+      }
+
       // Close modal
       setPendingPayload(null);
     } catch (err: any) {
@@ -346,16 +422,33 @@ export default function App() {
           onOpenSettings={() => setIsSpreadsheetModalOpen(true)}
           currentUser={currentUser}
           lastSubmittedSuccess={lastSubmittedSuccess}
+          historicalReports={majlisHistory}
+          prefilledValues={prefilledValues?.values}
         />
 
-        {/* Submissions Table for the selected month */}
+        {/* When logged in as Majlis, show their own Majlis previous months data history */}
+        {currentUser.role === 'majlis' && (
+          <MajlisPreviousMonthsView
+            currentUser={currentUser}
+            spreadsheet={spreadsheet}
+            reports={majlisHistory}
+            isLoading={isLoadingHistory}
+            onRefresh={loadMajlisHistory}
+            onLoadMonthIntoForm={handleLoadMonthIntoForm}
+          />
+        )}
+
+        {/* Submissions Table for the selected month or all previous months */}
         <RecentSubmissionsTable
           spreadsheet={spreadsheet}
           selectedMonth={selectedMonth}
           headers={headers}
           rows={currentMonthRows}
           isLoading={false}
-          onRefresh={() => {}}
+          onRefresh={loadMajlisHistory}
+          currentUser={currentUser}
+          historicalReports={majlisHistory}
+          onSelectMonth={(m) => setSelectedMonth(m)}
         />
       </main>
 

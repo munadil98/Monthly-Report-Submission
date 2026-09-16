@@ -24,7 +24,7 @@ import {
   Info,
   Lock,
 } from 'lucide-react';
-import { SpreadsheetMetadata, SubmissionPayload, AuthUser } from '../types';
+import { SpreadsheetMetadata, SubmissionPayload, AuthUser, MajlisHistoricalReport } from '../types';
 import {
   DEFAULT_MAJLIS_LIST,
   EXACT_FORM_FIELDS,
@@ -51,6 +51,8 @@ interface DataEntryFormProps {
     timestamp: string;
     liveSynced?: boolean;
   } | null;
+  historicalReports?: MajlisHistoricalReport[];
+  prefilledValues?: Record<string, string | number> | null;
 }
 
 export const DataEntryForm: React.FC<DataEntryFormProps> = ({
@@ -64,7 +66,12 @@ export const DataEntryForm: React.FC<DataEntryFormProps> = ({
   onOpenSettings,
   currentUser,
   lastSubmittedSuccess,
+  historicalReports = [],
+  prefilledValues,
 }) => {
+  // Feedback notice when historical data is loaded
+  const [historyLoadNotice, setHistoryLoadNotice] = useState<string | null>(null);
+
   // Majlis list state from sheet 'Majlis-Names'
   const [sheetMajlisList, setSheetMajlisList] = useState<string[]>(() => {
     try {
@@ -201,6 +208,50 @@ export const DataEntryForm: React.FC<DataEntryFormProps> = ({
     }
   }, [selectedMajlis]);
 
+  // Synchronize when external prefilled values are passed
+  useEffect(() => {
+    if (prefilledValues && Object.keys(prefilledValues).length > 0) {
+      setFieldValues((prev) => ({
+        ...prev,
+        ...prefilledValues,
+        'মজলিস নাম': selectedMajlis || prefilledValues['মজলিস নাম'] || prev['মজলিস নাম'],
+      }));
+      setHistoryLoadNotice('পূর্ববর্তী মাসের ডাটা সফলভাবে ফরমে লোড করা হয়েছে');
+      const timer = setTimeout(() => setHistoryLoadNotice(null), 6000);
+      return () => clearTimeout(timer);
+    }
+  }, [prefilledValues, selectedMajlis]);
+
+  // Find if current selected month already has submitted data in Google Sheets
+  const currentMonthHistory = useMemo(() => {
+    if (!historicalReports || !selectedMonth) return null;
+    return (
+      historicalReports.find(
+        (r) => r.monthTab.toLowerCase() === selectedMonth.toLowerCase() && r.hasData
+      ) || null
+    );
+  }, [historicalReports, selectedMonth]);
+
+  // Find latest submitted previous month with data
+  const latestPreviousMonthHistory = useMemo(() => {
+    if (!historicalReports || !selectedMonth) return null;
+    return (
+      historicalReports.find(
+        (r) => r.monthTab.toLowerCase() !== selectedMonth.toLowerCase() && r.hasData
+      ) || null
+    );
+  }, [historicalReports, selectedMonth]);
+
+  const handleApplyHistoricalData = (rep: MajlisHistoricalReport) => {
+    setFieldValues((prev) => ({
+      ...prev,
+      ...rep.values,
+      'মজলিস নাম': selectedMajlis || rep.values['মজলিস নাম'] || prev['মজলিস নাম'],
+    }));
+    setHistoryLoadNotice(`"${rep.monthLabel || rep.monthTab}" এর সংরক্ষিত তথ্য সফলভাবে ফরমে লোড করা হয়েছে`);
+    setTimeout(() => setHistoryLoadNotice(null), 6000);
+  };
+
   // Check which standard fields already match headers in this sheet tab
   const headerMatchInfo = useMemo(() => {
     if (headers.length === 0) {
@@ -262,8 +313,15 @@ export const DataEntryForm: React.FC<DataEntryFormProps> = ({
     }
   };
 
+  // Check if a month is currently selected
+  const isMonthSelected = Boolean(selectedMonth && selectedMonth.trim() !== '');
+
   // Sample data filler for fast testing/demonstration
   const handleFillSampleData = () => {
+    if (!isMonthSelected) {
+      alert('অনুগ্রহ করে প্রথমে একটি মাস নির্বাচন করুন!');
+      return;
+    }
     const sample: Record<string, string | number> = {
       'মজলিস নাম': selectedMajlis || allMajlisOptions[0] || 'মিরপুর (Mirpur)',
       'তাজনীদ ভুক্ত সদস্য': 48,
@@ -488,8 +546,13 @@ export const DataEntryForm: React.FC<DataEntryFormProps> = ({
           <button
             type="button"
             onClick={handleFillSampleData}
-            title="পরীক্ষা করার জন্য নমুনা ডাটা বসান"
-            className="px-2.5 py-1.5 bg-white/20 hover:bg-white/30 text-white text-[11px] font-bold rounded-xl transition flex items-center gap-1 cursor-pointer"
+            disabled={!isMonthSelected}
+            title={!isMonthSelected ? 'প্রথমে মাসের নাম নির্বাচন করুন' : 'পরীক্ষা করার জন্য নমুনা ডাটা বসান'}
+            className={`px-2.5 py-1.5 text-white text-[11px] font-bold rounded-xl transition flex items-center gap-1 ${
+              !isMonthSelected
+                ? 'bg-white/10 opacity-50 cursor-not-allowed'
+                : 'bg-white/20 hover:bg-white/30 cursor-pointer'
+            }`}
           >
             <Sparkles className="w-3.5 h-3.5" />
             নমুনা ডাটা
@@ -526,7 +589,7 @@ export const DataEntryForm: React.FC<DataEntryFormProps> = ({
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {!lastSubmittedSuccess.liveSynced && onOpenSettings && (
+            {!lastSubmittedSuccess.liveSynced && currentUser.role === 'admin' && onOpenSettings && (
               <button
                 type="button"
                 onClick={onOpenSettings}
@@ -535,7 +598,7 @@ export const DataEntryForm: React.FC<DataEntryFormProps> = ({
                 URL সংযোগ করুন
               </button>
             )}
-            {spreadsheet.spreadsheetUrl && (
+            {currentUser.role === 'admin' && spreadsheet.spreadsheetUrl && (
               <a
                 href={spreadsheet.spreadsheetUrl}
                 target="_blank"
@@ -549,51 +612,123 @@ export const DataEntryForm: React.FC<DataEntryFormProps> = ({
         </div>
       )}
 
-      {/* Header status check banner */}
-      {headers.length === 0 ? (
-        <div className="mx-6 mt-5 p-3.5 bg-amber-50 border border-amber-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-900">
-          <div className="flex items-start gap-2">
-            <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="font-bold">&quot;{selectedMonth}&quot; এ এখনও কোনো কলাম হেডার নেই</p>
-              <p className="text-[11px] text-amber-800 mt-0.5">
-                একটি ক্লিকে এই মাসে নির্ধারিত ৩৬টি কলাম হেডার স্বয়ংক্রিয়ভাবে সেট করে নিন।
-              </p>
+      {/* Header status check banner (Only shown when a month is selected) */}
+      {isMonthSelected && (
+        headers.length === 0 ? (
+          <div className="mx-6 mt-5 p-3.5 bg-amber-50 border border-amber-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-900">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold">&quot;{selectedMonth}&quot; এ এখনও কোনো কলাম হেডার নেই</p>
+                <p className="text-[11px] text-amber-800 mt-0.5">
+                  একটি ক্লিকে এই মাসে নির্ধারিত ৩৬টি কলাম হেডার স্বয়ংক্রিয়ভাবে সেট করে নিন।
+                </p>
+              </div>
             </div>
+            <button
+              type="button"
+              onClick={handleSetup36Headers}
+              disabled={isInitializingHeaders}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-300 text-white rounded-lg text-xs font-bold transition shadow-2xs whitespace-nowrap self-start sm:self-auto"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              {isInitializingHeaders ? 'হেডার যুক্ত হচ্ছে...' : '৩৬টি হেডার তৈরি করুন'}
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={handleSetup36Headers}
-            disabled={isInitializingHeaders}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-300 text-white rounded-lg text-xs font-bold transition shadow-2xs whitespace-nowrap self-start sm:self-auto"
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            {isInitializingHeaders ? 'হেডার যুক্ত হচ্ছে...' : '৩৬টি হেডার তৈরি করুন'}
-          </button>
-        </div>
-      ) : headerMatchInfo.matchedCount < 30 ? (
-        <div className="mx-6 mt-4 p-3 bg-blue-50/70 border border-blue-200 rounded-xl flex items-center justify-between gap-3 text-xs text-blue-900">
+        ) : headerMatchInfo.matchedCount < 30 ? (
+          <div className="mx-6 mt-4 p-3 bg-blue-50/70 border border-blue-200 rounded-xl flex items-center justify-between gap-3 text-xs text-blue-900">
+            <div className="flex items-center gap-2">
+              <Info className="w-4 h-4 text-blue-600 flex-shrink-0" />
+              <span>
+                বর্তমানে {headers.length}টি কলাম রয়েছে (যার মধ্যে {headerMatchInfo.matchedCount}টি ফিল্ডের সাথে মিলেছে)।
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={handleSetup36Headers}
+              disabled={isInitializingHeaders}
+              className="text-[11px] font-bold text-blue-700 hover:text-blue-900 underline whitespace-nowrap"
+            >
+              স্ট্যান্ডার্ড ৩৬টি হেডার সেট করুন
+            </button>
+          </div>
+        ) : null
+      )}
+
+      {/* Historical Data Loaded Feedback Notice */}
+      {historyLoadNotice && (
+        <div className="mx-6 mt-4 p-3 bg-emerald-100 border border-emerald-300 text-emerald-900 rounded-xl flex items-center justify-between text-xs font-bold animate-in fade-in">
           <div className="flex items-center gap-2">
-            <Info className="w-4 h-4 text-blue-600 flex-shrink-0" />
-            <span>
-              বর্তমানে {headers.length}টি কলাম রয়েছে (যার মধ্যে {headerMatchInfo.matchedCount}টি ফিল্ডের সাথে মিলেছে)।
-            </span>
+            <CheckCircle2 className="w-4 h-4 text-emerald-700" />
+            <span>{historyLoadNotice}</span>
           </div>
           <button
             type="button"
-            onClick={handleSetup36Headers}
-            disabled={isInitializingHeaders}
-            className="text-[11px] font-bold text-blue-700 hover:text-blue-900 underline whitespace-nowrap"
+            onClick={() => setHistoryLoadNotice(null)}
+            className="text-emerald-700 hover:text-emerald-950 text-xs px-2"
           >
-            স্ট্যান্ডার্ড ৩৬টি হেডার সেট করুন
+            ✕
           </button>
         </div>
-      ) : null}
+      )}
+
+      {/* Historical Data Helper Banner for Logged-In Majlis */}
+      {isMonthSelected && currentUser.role === 'majlis' && (
+        currentMonthHistory ? (
+          <div className="mx-6 mt-4 p-3.5 bg-emerald-50 border border-emerald-300/80 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-emerald-950">
+            <div className="flex items-start gap-2.5">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold">
+                  এই মাসে (&quot;{selectedMonth}&quot;) আপনার মজলিসের ডাটা ইতিমধ্যে গুগল শিটে সংরক্ষিত আছে ({currentMonthHistory.filledCount}টি ফিল্ড)
+                </p>
+                <p className="text-[11px] text-emerald-800 mt-0.5">
+                  তাজনীদ: <strong>{currentMonthHistory.values['তাজনীদ ভুক্ত সদস্য'] ?? '—'}</strong>, সফে আউয়াল: <strong>{currentMonthHistory.values['সফে আউয়াল'] ?? '—'}</strong>, সফে দওম: <strong>{currentMonthHistory.values['সফে দওম'] ?? '—'}</strong>, আমেলা: <strong>{currentMonthHistory.values['মোট আমেলা সদস্য'] ?? '—'}</strong>
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleApplyHistoricalData(currentMonthHistory)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold transition shadow-2xs whitespace-nowrap self-start sm:self-auto cursor-pointer"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              বিদ্যমান শিট ডাটা দিয়ে ফরম পূরণ করুন
+            </button>
+          </div>
+        ) : latestPreviousMonthHistory ? (
+          <div className="mx-6 mt-4 p-3.5 bg-blue-50/80 border border-blue-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-blue-950">
+            <div className="flex items-start gap-2.5">
+              <Info className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold">
+                  পূর্ববর্তী মাস &quot;{latestPreviousMonthHistory.monthLabel}&quot; এর সংরক্ষিত ডাটা পাওয়া গেছে
+                </p>
+                <p className="text-[11px] text-blue-800 mt-0.5">
+                  তাজনীদ ({latestPreviousMonthHistory.values['তাজনীদ ভুক্ত সদস্য'] ?? '—'}), সফে আউয়াল ({latestPreviousMonthHistory.values['সফে আউয়াল'] ?? '—'}) ও আমেলা ইত্যাদি তথ্য দিয়ে বর্তমান ফরমটি এক ক্লিকে পূরণ করতে পারেন।
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleApplyHistoricalData(latestPreviousMonthHistory)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white rounded-lg text-xs font-bold transition shadow-2xs whitespace-nowrap self-start sm:self-auto cursor-pointer"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              {latestPreviousMonthHistory.monthTab} এর তথ্য দিয়ে ফরম পূরণ করুন
+            </button>
+          </div>
+        ) : null
+      )}
 
       {/* Main Form */}
       <form onSubmit={handleSubmit} className="p-6 space-y-6">
         {/* Core Dropdowns: Month (Sheet Names) and Majlis Name */}
-        <div className="p-5 bg-gray-50/90 rounded-2xl border border-gray-200 space-y-4">
+        <div className={`p-5 rounded-2xl border transition space-y-4 ${
+          !isMonthSelected
+            ? 'bg-amber-50/40 border-amber-300/80 shadow-xs'
+            : 'bg-gray-50/90 border-gray-200'
+        }`}>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             {/* 1. Month Name Dropdown (Options same as sheet names) */}
             <div>
@@ -603,8 +738,12 @@ export const DataEntryForm: React.FC<DataEntryFormProps> = ({
                   মাসের নাম
                   <span className="text-red-500">*</span>
                 </span>
-                <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-md">
-                  মাস নির্বাচন
+                <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-md ${
+                  !isMonthSelected
+                    ? 'text-amber-800 bg-amber-200 font-bold animate-pulse'
+                    : 'text-emerald-700 bg-emerald-100'
+                }`}>
+                  {!isMonthSelected ? '⚠️ মাস নির্বাচন আবশ্যক' : 'মাস নির্বাচিত'}
                 </span>
               </label>
 
@@ -614,10 +753,15 @@ export const DataEntryForm: React.FC<DataEntryFormProps> = ({
                   value={selectedMonth}
                   onChange={(e) => onMonthChange(e.target.value)}
                   required
-                  className="w-full appearance-none px-3.5 py-2.5 bg-white border border-emerald-300 rounded-xl text-xs font-bold text-gray-900 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 shadow-2xs pr-9 cursor-pointer"
+                  className={`w-full appearance-none px-3.5 py-2.5 rounded-xl text-xs font-bold shadow-2xs pr-9 cursor-pointer transition ${
+                    !isMonthSelected
+                      ? 'bg-amber-50 border-2 border-amber-500 text-amber-950 ring-2 ring-amber-400/30 focus:outline-hidden focus:ring-2 focus:ring-amber-500'
+                      : 'bg-white border border-emerald-300 text-gray-900 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500'
+                  }`}
                 >
+                  <option value="">-- মাসের নাম নির্বাচন করুন (Select Month) --</option>
                   {spreadsheet.sheets.length === 0 && (
-                    <option value="">কোনো মাস পাওয়া যায়নি</option>
+                    <option value="" disabled>কোনো মাস পাওয়া যায়নি</option>
                   )}
                   {spreadsheet.sheets.map((sheet) => (
                     <option key={sheet.sheetId} value={sheet.title}>
@@ -628,21 +772,27 @@ export const DataEntryForm: React.FC<DataEntryFormProps> = ({
                 <ChevronDown className="w-4 h-4 text-gray-500 absolute right-3 top-3 pointer-events-none" />
               </div>
 
-              <div className="flex items-center justify-between mt-1 text-[11px]">
-                <span className="text-gray-500">
-                  নির্বাচিত মাসের তথ্য গুগল শিটে আপডেট হবে।
+              <div className="flex items-center justify-between mt-1.5 text-[11px]">
+                <span className={!isMonthSelected ? 'text-amber-700 font-semibold' : 'text-gray-500'}>
+                  {!isMonthSelected
+                    ? 'মাস নির্বাচন না করা পর্যন্ত ফরমের বাকি অংশ নিষ্ক্রিয় থাকবে।'
+                    : 'নির্বাচিত মাসের তথ্য গুগল শিটে আপডেট হবে।'}
                 </span>
-                <span className="text-emerald-700 font-semibold bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded font-mono">
-                  ট্যাব: {selectedMonth}
-                </span>
+                {isMonthSelected && (
+                  <span className="text-emerald-700 font-semibold bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded font-mono">
+                    ট্যাব: {selectedMonth}
+                  </span>
+                )}
               </div>
             </div>
 
             {/* 2. Majlis Name Dropdown (মজলিস নাম - Field #1) */}
-            <div>
+            <div className={!isMonthSelected ? 'opacity-60' : ''}>
               <label className="block text-xs font-bold text-gray-800 mb-1.5 flex items-center justify-between">
                 <span className="flex items-center gap-1.5">
-                  {currentUser.role === 'majlis' ? (
+                  {!isMonthSelected ? (
+                    <Lock className="w-4 h-4 text-gray-400" />
+                  ) : currentUser.role === 'majlis' ? (
                     <Lock className="w-4 h-4 text-emerald-700" />
                   ) : (
                     <Building2 className="w-4 h-4 text-emerald-600" />
@@ -651,7 +801,9 @@ export const DataEntryForm: React.FC<DataEntryFormProps> = ({
                   <span className="text-red-500">*</span>
                 </span>
                 <span className="text-[11px] text-gray-500 font-medium">
-                  {currentUser.role === 'majlis'
+                  {!isMonthSelected
+                    ? 'মাস নির্বাচন আবশ্যক'
+                    : currentUser.role === 'majlis'
                     ? 'শুধুমাত্র আপনার মজলিস'
                     : `${majlisOptions.length}টি মজলিস`}
                 </span>
@@ -670,10 +822,13 @@ export const DataEntryForm: React.FC<DataEntryFormProps> = ({
                 isSheetSynced={isSheetSynced}
                 isLocked={currentUser.role === 'majlis'}
                 lockedNotice="লগইনকৃত মজলিস (নির্ধারিত)"
+                disabled={!isMonthSelected}
               />
 
               <p className="text-[11px] text-gray-500 mt-1">
-                {currentUser.role === 'majlis'
+                {!isMonthSelected
+                  ? 'প্রথমে ওপরের ড্রপডাউন থেকে মাসের নাম নির্বাচন করুন।'
+                  : currentUser.role === 'majlis'
                   ? 'আপনার অ্যাকাউন্টের জন্য এই মজলিসটি নির্ধারিত ও অপরিবর্তনীয়।'
                   : 'বাংলা বা ইংরেজি যেকোনো নামে সার্চ করে নির্বাচন করুন (যেমন: মিরপুর বা Mirpur)।'}
               </p>
@@ -681,18 +836,21 @@ export const DataEntryForm: React.FC<DataEntryFormProps> = ({
           </div>
 
           {/* Date row (helper) */}
-          <div className="pt-3 border-t border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div className={`pt-3 border-t border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs ${
+            !isMonthSelected ? 'opacity-60' : ''
+          }`}>
             <div className="flex items-center gap-2">
               <span className="text-gray-600 font-medium">তথ্য জমাদানের তারিখ:</span>
               <input
                 type="date"
                 value={submissionDate}
+                disabled={!isMonthSelected}
                 onChange={(e) => setSubmissionDate(e.target.value)}
-                className="px-2.5 py-1 text-xs border border-gray-300 rounded-lg bg-white text-gray-800 font-mono"
+                className="px-2.5 py-1 text-xs border border-gray-300 rounded-lg bg-white text-gray-800 font-mono disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed"
               />
             </div>
 
-            {tajnidCount > 0 && safTotal > 0 && (
+            {tajnidCount > 0 && safTotal > 0 && isMonthSelected && (
               <div className="text-[11px] flex items-center gap-2">
                 <span className="text-gray-500">তাজনীদ চেক:</span>
                 <span
@@ -709,6 +867,45 @@ export const DataEntryForm: React.FC<DataEntryFormProps> = ({
             )}
           </div>
         </div>
+
+        {/* Notice Banner when month is NOT selected */}
+        {!isMonthSelected && (
+          <div className="p-4 sm:p-5 bg-gradient-to-r from-amber-50 to-orange-50/70 border-2 border-dashed border-amber-300 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3 text-amber-950 shadow-2xs">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-100 border border-amber-300 flex items-center justify-center text-amber-700 shrink-0">
+                <Lock className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-xs font-bold text-amber-950 flex items-center gap-1.5">
+                  ফরমের বাকি অংশ নিষ্ক্রিয় (Disabled)
+                </h4>
+                <p className="text-[11px] text-amber-800 mt-0.5">
+                  প্রতিবেদনের ৩৬টি ফিল্ড পূরণ করতে অনুগ্রহ করে প্রথমে ওপরের <strong>&quot;মাসের নাম&quot;</strong> ড্রপডাউন থেকে মাস নির্বাচন করুন।
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const el = document.getElementById('month-dropdown');
+                if (el) {
+                  el.focus();
+                }
+              }}
+              className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl transition shadow-2xs whitespace-nowrap self-stretch sm:self-auto text-center cursor-pointer"
+            >
+              মাস নির্বাচন করুন &uarr;
+            </button>
+          </div>
+        )}
+
+        {/* Form fields & submission controls - disabled until a month is selected */}
+        <fieldset
+          disabled={!isMonthSelected}
+          className={`space-y-6 transition-all duration-200 ${
+            !isMonthSelected ? 'opacity-40 pointer-events-none select-none filter grayscale-20' : ''
+          }`}
+        >
 
         {/* Categories Bar & Search Filter */}
         <div className="space-y-3">
@@ -911,7 +1108,8 @@ export const DataEntryForm: React.FC<DataEntryFormProps> = ({
             <button
               type="button"
               onClick={handleResetForm}
-              className="w-full sm:w-auto px-4 py-2.5 border border-gray-300 text-gray-700 hover:bg-gray-50 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer"
+              disabled={!isMonthSelected}
+              className="w-full sm:w-auto px-4 py-2.5 border border-gray-300 text-gray-700 hover:bg-gray-50 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
               <RotateCcw className="w-3.5 h-3.5" />
               ফরম রিসেট (Clear)
@@ -920,12 +1118,20 @@ export const DataEntryForm: React.FC<DataEntryFormProps> = ({
 
           <button
             type="submit"
-            className="w-full sm:w-auto px-7 py-3 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-xs font-bold rounded-xl transition shadow-md hover:shadow-lg flex items-center justify-center gap-2 cursor-pointer"
+            disabled={!isMonthSelected}
+            className={`w-full sm:w-auto px-7 py-3 text-white text-xs font-bold rounded-xl transition flex items-center justify-center gap-2 ${
+              !isMonthSelected
+                ? 'bg-gray-300 text-gray-500 cursor-not-allowed shadow-none'
+                : 'bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 shadow-md hover:shadow-lg cursor-pointer'
+            }`}
           >
             <Send className="w-4 h-4" />
-            গুগল শিটে জমা দিন ({filledFieldsCount}টি তথ্য)
+            {!isMonthSelected
+              ? 'প্রথমে মাস নির্বাচন করুন'
+              : `গুগল শিটে জমা দিন (${filledFieldsCount}টি তথ্য)`}
           </button>
         </div>
+        </fieldset>
       </form>
     </div>
   );
