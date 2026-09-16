@@ -1,4 +1,4 @@
-import { SheetTabInfo, SpreadsheetMetadata } from '../types';
+import { SheetTabInfo, SpreadsheetMetadata, MajlisUserRecord } from '../types';
 import {
   DEFAULT_MONTH_NAMES_BN,
   DEFAULT_SPREADSHEET_ID,
@@ -214,6 +214,74 @@ export async function fetchMajlisNamesFromSheet(
       }
     } catch (err) {
       console.warn(`Could not read sheet ${sheetName}:`, err);
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Dynamically fetches all Majlis user records (with up-to-date Mobile numbers)
+ * directly from the "Majlis-Names" tab of the Google Spreadsheet.
+ */
+export async function fetchMajlisUsersFromSheet(
+  sheetUrlOrId: string = DEFAULT_SPREADSHEET_ID
+): Promise<MajlisUserRecord[] | null> {
+  const sheetId = extractSpreadsheetId(sheetUrlOrId);
+  if (!sheetId || sheetId.startsWith('local')) {
+    return null;
+  }
+
+  const possibleSheetNames = ['Majlis-Names', 'Majlis Names', 'Majlis_Names', 'Majlis-Name', 'Majlis'];
+
+  for (const sheetName of possibleSheetNames) {
+    try {
+      const gvizUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(
+        sheetName
+      )}`;
+
+      const res = await fetch(gvizUrl);
+      if (!res.ok) continue;
+
+      const text = await res.text();
+      const match = text.match(/google\.visualization\.Query\.setResponse\(([\s\S]+)\);/);
+      if (!match || !match[1]) continue;
+
+      const json = JSON.parse(match[1]);
+      if (!json || json.status === 'error' || !json.table) continue;
+
+      const rows = json.table.rows || [];
+      if (rows.length === 0) continue;
+
+      const users: MajlisUserRecord[] = [];
+
+      for (let r = 0; r < rows.length; r++) {
+        const c = rows[r].c || [];
+        const rawSl = c[0]?.v ?? c[0]?.f ?? (r + 1);
+        const english = String(c[1]?.v ?? c[1]?.f ?? '').trim();
+        const bangla = String(c[2]?.v ?? c[2]?.f ?? '').trim();
+        const mobile = String(c[3]?.v ?? c[3]?.f ?? '').trim();
+        const district = String(c[4]?.v ?? c[4]?.f ?? '').trim();
+        const region = String(c[7]?.v ?? c[7]?.f ?? '').trim();
+
+        if (english && english.toLowerCase() !== 'majlis in english') {
+          users.push({
+            sl: Number(rawSl) || (r + 1),
+            english,
+            bangla: bangla || english,
+            mobile,
+            district: district || undefined,
+            region: region || undefined,
+            fullName: bangla ? `${bangla} (${english})` : english,
+          });
+        }
+      }
+
+      if (users.length > 0) {
+        return users;
+      }
+    } catch (err) {
+      console.warn(`Could not load user records from sheet ${sheetName}:`, err);
     }
   }
 

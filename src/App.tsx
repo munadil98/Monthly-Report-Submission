@@ -21,14 +21,16 @@ import {
   submitToAppsScript,
   exportSubmissionsToCSV,
   fetchTabsFromAppsScript,
+  fetchMajlisUsersFromSheet,
 } from './services/googleSheets';
-import { EXACT_FORM_FIELDS, DEFAULT_MONTH_NAMES_BN } from './data/majlisList';
+import { EXACT_FORM_FIELDS, DEFAULT_MONTH_NAMES_BN, DEFAULT_SPREADSHEET_ID } from './data/majlisList';
 import { INITIAL_MAJLIS_USERS } from './data/majlisUsers';
 import {
   SpreadsheetMetadata,
   SubmissionPayload,
   StoredSubmission,
   AuthUser,
+  MajlisUserRecord,
 } from './types';
 
 export default function App() {
@@ -74,6 +76,43 @@ export default function App() {
   });
 
   const [isSpreadsheetModalOpen, setIsSpreadsheetModalOpen] = useState(false);
+
+  // Dynamic Majlis Users list (cached and synced from Google Sheets 'Majlis-Names')
+  const [majlisUsersList, setMajlisUsersList] = useState<MajlisUserRecord[]>(() => {
+    try {
+      const saved = localStorage.getItem('majlis_synced_users');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    return INITIAL_MAJLIS_USERS;
+  });
+
+  // Background sync of all majlis users and mobile numbers from Google Sheets
+  useEffect(() => {
+    let isMounted = true;
+    const targetSheetId = spreadsheet?.spreadsheetId || DEFAULT_SPREADSHEET_ID;
+    fetchMajlisUsersFromSheet(targetSheetId)
+      .then((users) => {
+        if (isMounted && users && users.length > 0) {
+          setMajlisUsersList(users);
+          try {
+            localStorage.setItem('majlis_synced_users', JSON.stringify(users));
+          } catch (e) {
+            console.error('Failed to cache synced users:', e);
+          }
+        }
+      })
+      .catch((err) => {
+        console.warn('Background majlis users sync error:', err);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [spreadsheet?.spreadsheetId]);
 
   // Active Month (Sheet Tab) state
   const [selectedMonth, setSelectedMonth] = useState<string>(() => {
@@ -279,7 +318,7 @@ export default function App() {
 
   // If user is not logged in, render the login portal
   if (!currentUser) {
-    return <LoginForm onLogin={handleLogin} usersList={INITIAL_MAJLIS_USERS} />;
+    return <LoginForm onLogin={handleLogin} usersList={majlisUsersList} />;
   }
 
   return (

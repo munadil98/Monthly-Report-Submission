@@ -249,7 +249,7 @@ export const INITIAL_MAJLIS_USERS: MajlisUserRecord[] = [
     "sl": 28,
     "english": "Chittagong",
     "bangla": "চট্টগ্রাম",
-    "mobile": "8801860862785",
+    "mobile": "8801734416398",
     "district": "চট্টগ্রাম ও পার্বত্য",
     "region": "চট্টগ্রাম-কক্সবাজার",
     "fullName": "চট্টগ্রাম (Chittagong)"
@@ -1303,7 +1303,10 @@ export function authenticateUser(
     const normMobile = normalizePhone(m.mobile);
     const phoneMatches = normMobile === normPass || (normMobile.endsWith(normPass) && normPass.length >= 10);
 
-    return exactMatch || phoneMatches;
+    // Chittagong historical number fallback
+    const chittagongFallback = normEng === "chittagong" && (normPass.endsWith("1860862785") || normPass.endsWith("1734416398"));
+
+    return exactMatch || phoneMatches || chittagongFallback;
   });
 
   if (matched) {
